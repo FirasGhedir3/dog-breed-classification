@@ -1,0 +1,16 @@
+# Dataset (download it yourself, see data/README.md)
+data/SmallDB/
+data/processed/*
+!data/processed/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+.pytest_cache/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
