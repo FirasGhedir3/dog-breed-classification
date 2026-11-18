@@ -1,8 +1,9 @@
 # Classification de races de chiens from scratch : PCA, HOG, k-NN et SVM
 
 Classification fine de **6 races de chiens** (Chihuahua, basset, Kerry blue terrier,
-groenendael, malinois, chow) à partir d'images 64x64 en niveaux de gris, en utilisant uniquement
-du machine learning et du traitement d'image classiques (pas de deep learning).
+groenendael, malinois, chow) à partir d'images 64x64 en niveaux de gris. On compare des descripteurs
+faits à la main (PCA, HOG, SIFT) à des descripteurs appris par un réseau profond pré-entraîné
+(VGG16, transfer learning), tous classés par un SVM.
 
 Les images viennent de SmallDB, un extrait du jeu [Stanford Dogs](http://vision.stanford.edu/aditya86/ImageNetDogs/).
 Le projet suit la structure d'un cours d'introduction au machine learning et a été retravaillé
@@ -21,9 +22,15 @@ Split stratifié 75/25 (751 train / 251 test, seed 42). Le hasard donne 83 % d'e
 | SVM RBF (C = 1, gamma = "scale") | 40,2 % |
 | SVM RBF réglé par GridSearchCV (n = 10, C = 10, gamma = 0,01) | 43,0 % |
 | Idem, One-vs-One / One-vs-Rest | 43,0 % / 43,0 % |
+| SIFT dense (2048 valeurs) + SVM RBF réglé | 43,8 % |
+| **VGG16 pré-entraîné (25 088 valeurs) + SVM RBF réglé** | **16,7 %** |
 
 Sur 10 splits aléatoires, le SVM RBF par défaut atteint 43,4 % (+/- 2,8) et le SVM réglé
 44,3 % (+/- 2,7) : le réglage n'apporte rien. Le facteur limitant, ce sont les features, pas le classifieur.
+
+Sur 10 splits avec un SVM RBF par défaut (C = 1) : PCA+HOG 43,4 %, SIFT 43,6 %, VGG16 27,4 %.
+Le réglage de C et gamma n'apporte rien pour PCA+HOG et SIFT, mais environ 10 points pour VGG16
+(le chiffre de 16,7 % vient d'un seul split, 42, avec réglage par validation croisée).
 
 ### Figures principales
 
@@ -50,6 +57,19 @@ Toutes les figures sont dans `results/figures/` (légendes en anglais).
 7. **Étude de la standardisation** : ce que deviennent les distances quand on la retire.
 8. **SVM** : noyaux linéaire et RBF, `GridSearchCV` sur le nombre de composantes PCA, C et gamma,
    puis One-vs-One contre One-vs-Rest.
+9. **Bonus, PCA comme générateur** : on tire des coordonnées au hasard dans l'espace réduit de chaque race
+   et `inverse_transform` fabrique de nouvelles images 64x64. Ajouter 100 images synthétiques par race
+   au train **n'aide pas** (43,4 % -> 45,5 % d'erreur test pour le SVM par défaut, moyenne sur 10 splits) :
+   ces images sont floues et ne contiennent que ce que la PCA a déjà appris.
+10. **SIFT dense** : 16 descripteurs SIFT placés sur une grille, concaténés (2048 valeurs), puis SVM.
+    Résultat au niveau de PCA+HOG : les deux mesurent des orientations de contours par zone.
+11. **Transfer learning avec VGG16** : on retire la tête de classification d'un VGG16 entraîné sur
+    ImageNet et on garde la sortie du dernier pooling comme features. VGG16 n'est pas réentraîné,
+    c'est un extracteur figé ; le classifieur final est un SVM. L'erreur passe de 43 % à 16,7 %.
+12. **Ajout de nouvelles races** : on apprend 4 races, puis on en ajoute 2 avec n images chacune.
+    Avec moins de 20 images par race, aucune méthode n'y arrive ; avec 100 images, VGG16 atteint 68,6 %
+    sur les nouvelles races contre environ 54 % pour PCA+HOG et SIFT. Ré-entraîner coûte 6 à 10 s pour
+    VGG16 contre moins d'une demi-seconde pour les autres.
 
 ## Structure du projet
 
@@ -83,7 +103,13 @@ python scripts/hog_features.py
 python scripts/knn_baseline.py
 python scripts/scaling_effect.py
 python scripts/svm_tuning.py       # environ une minute (225 entraînements)
-pytest
+python scripts/pca_generator.py    # bonus : images synthétiques par PCA inverse
+python scripts/sift_features.py
+pip install torch torchvision      # nécessaire pour VGG16 (poids ImageNet, environ 530 Mo)
+python scripts/vgg16_features.py   # plusieurs minutes sur CPU ; sauvegarde les features
+python scripts/new_breeds.py       # utilise les features VGG16 si elles existent
+pip install pytest
+python -m pytest
 ```
 
 Les scripts se lisent dans cet ordre ; chacun affiche ses chiffres et sauvegarde ses figures.
@@ -97,7 +123,12 @@ Les scripts se lisent dans cet ordre ; chacun affiche ses chiffres et sauvegarde
   donc une partie du signal décrit la forme de la boîte, pas le chien.
 - Le k-NN souffre des distances en grande dimension ; le SVM à noyau RBF s'en sort mieux mais
   est déjà proche de ce que ces features permettent.
-- Suite naturelle : un CNN avec transfer learning, qui serait la comparaison honnête.
+- Pour VGG16, les images 64x64 en niveaux de gris sont agrandies à 224x224 et recopiées sur 3 canaux,
+  avec leurs bandes noires : c'est le même input que pour les autres méthodes, mais très éloigné des
+  photos couleur sur lesquelles VGG16 a été entraîné. Piste : recadrer en couleur à 224x224.
+- VGG16 sert d'extracteur figé, il n'est pas réentraîné (pas de fine-tuning).
+- Le test « nouvelles races » utilise le même SVM RBF pour tout ; un classifieur plus simple serait
+  sans doute meilleur avec très peu d'exemples.
 
 ## Contexte
 
